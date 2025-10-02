@@ -90,6 +90,8 @@ This creates a text file with one demo ID per line, making it simple to split wo
   provides a `Content-Length`, the bar will show the estimated completion percentage.
 - Failed downloads are retried a configurable number of times (`--retries`). At the end of the run,
   a summary is printed indicating how many demos were downloaded, skipped, missing, or failed.
+- Session statistics report the number of demos saved, total bytes transferred, and total elapsed time
+  for the invocation so you can track throughput across machines.
 
 ## Disclaimer
 

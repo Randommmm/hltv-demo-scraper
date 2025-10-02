@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import Iterable, List
 
 from .downloader import DemoDownloader, DownloadResult, unique_demo_ids, write_demo_id_file
@@ -129,8 +131,10 @@ def main(argv: List[str] | None = None) -> int:
             skip_existing=not args.overwrite,
             metadata_path=metadata_path,
         )
+        start_time = perf_counter()
         results = downloader.download_many(demo_ids)
-        _print_summary(results)
+        elapsed_seconds = perf_counter() - start_time
+        _print_summary(results, elapsed_seconds)
         failed_downloads = [result for result in results if result.status not in {"downloaded", "skipped"}]
         return 1 if failed_downloads else 0
 
@@ -170,17 +174,21 @@ def _load_ids_from_files(files: Iterable[Path]) -> List[int]:
     return demo_ids
 
 
-def _print_summary(results: Iterable[DownloadResult]) -> None:
+def _print_summary(results: Iterable[DownloadResult], elapsed_seconds: float) -> None:
     total = 0
     counts = {"downloaded": 0, "skipped": 0, "not_found": 0, "failed": 0}
+    bytes_downloaded = 0
     for result in results:
         total += 1
         counts.setdefault(result.status, 0)
         counts[result.status] += 1
+        if result.status == "downloaded":
+            bytes_downloaded += result.bytes_downloaded
         if result.status == "failed":
             logging.error("Failed to download %s: %s", result.demo_id, result.message)
         elif result.status == "not_found":
             logging.warning("Demo ID %s was not found", result.demo_id)
+
     logging.info(
         "Summary: %s demos processed (%s downloaded, %s skipped, %s not found, %s failed)",
         total,
@@ -189,6 +197,25 @@ def _print_summary(results: Iterable[DownloadResult]) -> None:
         counts.get("not_found", 0),
         counts.get("failed", 0),
     )
+
+    logging.info(
+        "Session stats: %s demos downloaded, %s transferred, elapsed %s",
+        counts.get("downloaded", 0),
+        _format_bytes(bytes_downloaded),
+        timedelta(seconds=elapsed_seconds),
+    )
+
+
+def _format_bytes(num_bytes: int) -> str:
+    if num_bytes <= 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    size = float(num_bytes)
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} PB"
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point

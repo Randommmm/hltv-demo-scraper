@@ -27,6 +27,7 @@ class DownloadResult:
     status: str
     message: str = ""
     file_path: Optional[Path] = None
+    bytes_downloaded: int = 0
 
     def __bool__(self) -> bool:  # pragma: no cover - convenience only
         return self.status == "downloaded"
@@ -95,13 +96,16 @@ class DemoDownloader:
                         desc=f"Demo {demo_id}",
                         leave=False,
                     )
+                    bytes_written = 0
                     try:
                         with destination.open("wb") as file_handle:
                             for chunk in response.iter_content(chunk_size=self.chunk_size):
                                 if not chunk:
                                     continue
                                 file_handle.write(chunk)
-                                progress.update(len(chunk))
+                                chunk_length = len(chunk)
+                                bytes_written += chunk_length
+                                progress.update(chunk_length)
                     finally:
                         progress.close()
 
@@ -118,7 +122,12 @@ class DemoDownloader:
                         _LOGGER.warning(
                             "Failed to record metadata for demo %s: %s", demo_id, exc
                         )
-                return DownloadResult(demo_id, "downloaded", file_path=destination)
+                return DownloadResult(
+                    demo_id,
+                    "downloaded",
+                    file_path=destination,
+                    bytes_downloaded=bytes_written,
+                )
             except RequestException as exc:
                 last_error = exc
                 _LOGGER.warning(
