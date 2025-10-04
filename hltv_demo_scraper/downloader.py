@@ -12,6 +12,8 @@ from requests import Response
 from requests.exceptions import RequestException
 from tqdm import tqdm
 
+from .metadata import MetadataCollector
+
 _LOGGER = logging.getLogger(__name__)
 
 DEMO_URL_TEMPLATE = "https://www.hltv.org/download/demo/{demo_id}"
@@ -25,6 +27,7 @@ class DownloadResult:
     status: str
     message: str = ""
     file_path: Optional[Path] = None
+    bytes_downloaded: int = 0
 
     def __bool__(self) -> bool:  # pragma: no cover - convenience only
         return self.status == "downloaded"
@@ -41,6 +44,7 @@ class DemoDownloader:
         retries: int = 3,
         timeout: int = 60,
         skip_existing: bool = True,
+        metadata_path: Optional[Path] = None,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.chunk_size = chunk_size
@@ -48,6 +52,11 @@ class DemoDownloader:
         self.timeout = timeout
         self.skip_existing = skip_existing
         self.scraper = cloudscraper.create_scraper()
+        self.metadata_collector = (
+            MetadataCollector(self.scraper, metadata_path, timeout=timeout)
+            if metadata_path
+            else None
+        )
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def download_many(self, demo_ids: Iterable[int]) -> List[DownloadResult]:
@@ -87,18 +96,38 @@ class DemoDownloader:
                         desc=f"Demo {demo_id}",
                         leave=False,
                     )
+                    bytes_written = 0
                     try:
                         with destination.open("wb") as file_handle:
                             for chunk in response.iter_content(chunk_size=self.chunk_size):
                                 if not chunk:
                                     continue
                                 file_handle.write(chunk)
-                                progress.update(len(chunk))
+                                chunk_length = len(chunk)
+                                bytes_written += chunk_length
+                                progress.update(chunk_length)
                     finally:
                         progress.close()
 
                 _LOGGER.info("Downloaded %s -> %s", url, destination)
-                return DownloadResult(demo_id, "downloaded", file_path=destination)
+                if self.metadata_collector:
+                    try:
+                        self.metadata_collector.record_download(
+                            demo_id,
+                            file_path=destination,
+                            original_url=url,
+                            response=response,
+                        )
+                    except Exception as exc:  # pragma: no cover - defensive logging
+                        _LOGGER.warning(
+                            "Failed to record metadata for demo %s: %s", demo_id, exc
+                        )
+                return DownloadResult(
+                    demo_id,
+                    "downloaded",
+                    file_path=destination,
+                    bytes_downloaded=bytes_written,
+                )
             except RequestException as exc:
                 last_error = exc
                 _LOGGER.warning(
@@ -128,14 +157,22 @@ class DemoDownloader:
         if disposition:
             filename = DemoDownloader._parse_content_disposition(disposition)
             if filename:
-                return filename
+                return DemoDownloader._ensure_demo_id_prefix(filename, demo_id)
 
         # Fall back to deriving from the final URL if present.
         filename = Path(response.url).name.split("?")[0]
         if filename:
-            return filename
+            return DemoDownloader._ensure_demo_id_prefix(filename, demo_id)
 
-        return f"demo_{demo_id}.rar"
+        return f"{demo_id}_demo.rar"
+
+    @staticmethod
+    def _ensure_demo_id_prefix(filename: str, demo_id: int) -> str:
+        sanitized = Path(filename).name
+        prefix = f"{demo_id}_"
+        if sanitized.startswith(prefix):
+            return sanitized
+        return prefix + sanitized
 
     @staticmethod
     def _parse_content_disposition(header_value: str) -> Optional[str]:

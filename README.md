@@ -7,6 +7,7 @@ A small command line utility for downloading demo archives from [HLTV.org](https
 - Generating ID files for distributing work across multiple machines
 - Progress bars for each download via `tqdm`
 - Automatic retry logic, error handling, and optional file overwriting
+- Structured metadata capture for each successful download, written to JSON alongside the demos
 
 ## Installation
 
@@ -39,6 +40,41 @@ python -m hltv_demo_scraper download \
 
 By default, existing files are skipped. To overwrite, pass `--overwrite`.
 
+Each downloaded archive is saved with its demo ID prefixed to the filename (for example,
+`100639_esl-pro-league-season-22-stage-1-m80-vs-heroic-bo3.rar`). Metadata describing the download
+is written to `metadata.json` in the output directory unless another path is provided via
+`--metadata-file`.
+
+The metadata file contains a `demos` map keyed by demo ID strings. Each entry includes the saved
+filename, the match information (teams, match URL, HLTV match ID, and match date when available), the
+UTC timestamp of the download, the file size in bytes, and both the original HLTV download URL and the
+resolved CDN URL. The top-level `last_updated` field reflects when the file was last written. A minimal
+example looks like this:
+
+```json
+{
+  "demos": {
+    "100639": {
+      "filename": "100639_esl-pro-league-season-22-stage-1-m80-vs-heroic-bo3.rar",
+      "match_info": {
+        "match_id": "2385919",
+        "match_url": "https://www.hltv.org/matches/2385919/heroic-vs-3dmax-esl-pro-league-season-22-stage-1",
+        "teams": [
+          "HEROIC",
+          "3DMAX"
+        ],
+        "date": "2025-09-30"
+      },
+      "download_date": "2025-10-01T10:25:45.711662+00:00",
+      "file_size": 397045659,
+      "original_url": "https://www.hltv.org/download/demo/100639",
+      "resolved_download_url": "https://r2-demos.hltv.org/demos/118738/..."
+    }
+  },
+  "last_updated": "2025-10-01T10:25:45.711683+00:00"
+}
+```
+
 ### Generate an ID file
 
 ```bash
@@ -54,6 +90,8 @@ This creates a text file with one demo ID per line, making it simple to split wo
   provides a `Content-Length`, the bar will show the estimated completion percentage.
 - Failed downloads are retried a configurable number of times (`--retries`). At the end of the run,
   a summary is printed indicating how many demos were downloaded, skipped, missing, or failed.
+- Session statistics report the number of demos saved, total bytes transferred, and total elapsed time
+  for the invocation so you can track throughput across machines.
 
 ## Disclaimer
 
